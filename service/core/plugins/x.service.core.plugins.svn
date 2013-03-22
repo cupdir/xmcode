@@ -1,0 +1,18 @@
+var command = require('child_process').spawn;
+function svn(){
+	this.info = function(){
+		var info = command('svn',['info','svn://127.0.0.1/myproject','--username','cupdir','--password','haiquan','--no-auth-cache','--non-interactive']);
+		info.stdout.setEncoding('utf8')
+		info.stdout.on('data',function(data){
+			console.log(data);
+		});
+		info.stderr.on('data', function (data) {
+  			console.log('stderr: ' + data);
+		});
+		info.on('close', function (code) {
+  			console.log('child process exited with code ' + code);
+		});		
+	}
+}
+
+exports.svn = new svn();
