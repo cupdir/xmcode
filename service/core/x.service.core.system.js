@@ -4,12 +4,14 @@ var plugins = require('./plugins/x.service.core.plugins.svn'),
 	sys = require('sys');
 //定义system
 function system(){
+	
 	EventEmitter.call(this);
 };
 sys.inherits(system, EventEmitter);
 //svn class
 system.prototype.svn = plugins.svn;
-var system = new system();
+
+exports.system = new system();
 
 
 

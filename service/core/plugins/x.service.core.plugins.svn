@@ -1,18 +1,42 @@
-var command = require('child_process').spawn;
-function svn(){
-	this.info = function(){
-		var info = command('svn',['info','svn://127.0.0.1/myproject','--username','cupdir','--password','haiquan','--no-auth-cache','--non-interactive']);
-		info.stdout.setEncoding('utf8')
-		info.stdout.on('data',function(data){
-			console.log(data);
-		});
-		info.stderr.on('data', function (data) {
-  			console.log('stderr: ' + data);
-		});
-		info.on('close', function (code) {
-  			console.log('child process exited with code ' + code);
-		});		
-	}
+var command = require('child_process').spawn,
+	EC = require('../../config/x.service.config.event'),
+	events = require('events'),
+	EventEmitter = events.EventEmitter,
+	sys = require('sys');
+
+function svn() {
+	events.EventEmitter.call(this);
 }
+sys.inherits(svn, EventEmitter);
+svn.prototype.info = function(project, username, password, callback) {
+	var self = this ,info_json = [];
+	var info = command('svn', [
+		'info', 'https://b2code.xiaomi.com/repos/xiaomi-b2c/trunk/src/cloud/b2c.xiaomi.com/' + project,
+		'--username', username,
+		'--password', password,
+		'--no-auth-cache',
+		'--non-interactive']);
+
+	info.stdout.setEncoding('utf8')
+	info.stdout.on('data', function(data) {
+		if (typeof callback == 'function') {
+	
+			var list = data.replace(/\n+|\n+$/g,'|')
+			console.log(list.split('|'))
+			//callback(null, data);
+		}
+	});
+	info.stderr.on('data', function(error) {
+		console.log(error)
+		callback(error, {});
+	});
+	info.on('close', function(code) {
+		self.emit(EC.E_SVN_INFO_CLOSE);
+	});
+};
+svn.prototype.create = function(){
+	var self = this;
+
+};
 
 exports.svn = new svn();

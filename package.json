@@ -1,0 +1,20 @@
+{
+  "name": "xmcode",
+  "description": "小米代码发布平台",
+  "version": "0.0.1",
+  "author": {
+    "name": "cupdir",
+    "email": "cupdir@gmail.com"
+  },
+  "dependencies": {
+    "redis": ">=0.8.2",
+    "debug": "*"
+  },
+  "devDependencies": {
+    "mocha": "*"
+  },  
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/cupdir/xmcode.git"
+  }
+}

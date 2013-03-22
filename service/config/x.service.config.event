@@ -1,0 +1,1 @@
+exports.E_SVN_INFO_CLOSE = 'info close'
