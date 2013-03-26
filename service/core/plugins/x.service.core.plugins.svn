@@ -11,7 +11,7 @@ sys.inherits(svn, EventEmitter);
 svn.prototype.info = function(project, username, password, callback) {
 	var self = this ,info_json = [];
 	var info = command('svn', [
-		'info', 'https://b2code.xiaomi.com/repos/xiaomi-b2c/trunk/src/cloud/b2c.xiaomi.com/' + project,
+		'info', '' + project,
 		'--username', username,
 		'--password', password,
 		'--no-auth-cache',
