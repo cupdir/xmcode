@@ -7,10 +7,8 @@ import sys
 from daemon import Daemon
 
 class MiUp(Daemon):
-    rootpath = '/git/miup_python/'
+    rootpath = '~/work/xmcode/sbin/' #FIXME
     rpmbuildpath = '/usr/src/rpmbuild/'
-    destdir = '/data/www/10.xiaomi.com'
-    homepath = '/home/xiaoqing/'
     redis_host = '10.237.93.17'
     redis_port = 6379
 
