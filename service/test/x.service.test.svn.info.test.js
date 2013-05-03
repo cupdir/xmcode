@@ -13,8 +13,9 @@ describe('svn',function(){
   	 		done();
   	 	});
   	 	it('get svn info ', function(done){
-	  	 	plugins.system.svn.info('10.xiaomi.com','wanghaiquan','haiquan82@',function(err,data){
+	  	 	plugins.system.svn.info('myproject','cupdir','haiquan',function(err,data){
 	  	 	 	assert(err == null);
+	  	 	 	
 	  	 	 	process.nextTick(function(){
 	  	 	 		console.log(data);
 	  	 	 		

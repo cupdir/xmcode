@@ -11,7 +11,7 @@ sys.inherits(svn, EventEmitter);
 svn.prototype.info = function(project, username, password, callback) {
 	var self = this ,info_json = [];
 	var info = command('svn', [
-		'info', 'https://b2code.xiaomi.com/repos/xiaomi-b2c/trunk/src/cloud/b2c.xiaomi.com/' + project,
+		'info', 'svn://127.0.0.1/' + project,
 		'--username', username,
 		'--password', password,
 		'--no-auth-cache',
@@ -20,14 +20,10 @@ svn.prototype.info = function(project, username, password, callback) {
 	info.stdout.setEncoding('utf8')
 	info.stdout.on('data', function(data) {
 		if (typeof callback == 'function') {
-	
-			var list = data.replace(/\n+|\n+$/g,'|')
-			console.log(list.split('|'))
 			//callback(null, data);
 		}
 	});
 	info.stderr.on('data', function(error) {
-		console.log(error)
 		callback(error, {});
 	});
 	info.on('close', function(code) {
