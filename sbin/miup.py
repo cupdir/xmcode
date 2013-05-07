@@ -28,64 +28,59 @@ class MiUp(Daemon):
             print task
             #Step1: floder 'rep/xxx' update to the release version
             print '---up---'
-            print self.up_to_version(task_info, task_info['release_ver'])
+            status, output = self.up_to_version(task_info, task_info['release_ver'])
+            if status != 0:
+                print 'up to version failed-_-' #TODO write log
+                self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
+                continue
 
             #Step2: rsync folder 'rpmsrc/xxx'
             print '---rsync---'
-            print self.rsync(task_info['release_exclude'])
+            status, output = self.rsync(task_info['release_exclude'])
+            if status != 0:
+                print 'rsync folder failed-_-' #TODO write log
+                self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
+                continue
 
             #Step3: make xxx.tar.gz
             srcpath = 'rpmsrc/' + task_info['project_id']
-            tarname = task_info['project_id']
+            project_id = task_info['project_id']
             tarversion = task_info['task_id']
             print '---mktar---'
-            print self.mktar(srcpath, tarname + '-' + tarversion)
+            status, output = self.mktar(srcpath, project_id + '-' + tarversion)
+            if status != 0:
+                print 'make tar.gz failed-_-' #TODO write log
+                self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
+                continue
 
             #Step4: make xxx.rpm
             #Step4.1 make spec file
             print '---mkspec---'
-            print self.mkspec(tarname, tarversion, task_info['release_server']['path'])
+            status, output = self.mkspec(project_id, tarversion, task_info['release_server']['path'])
+            if status != 0:
+                print 'make spec file failed-_-' #TODO write log
+                self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
+                continue
             #Step4.2 make xxx.rpm
             print '---rpmbuild---'
-            print self.rpmbuild(tarname + '-' + tarversion)
+            status, output = self.rpmbuild(project_id + '-' + tarversion)
+            if status != 0:
+                print 'make rpm package failed-_-' #TODO write log
+                self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
+                continue
             print 'rpmbuild finished'
 
             #Step5: upload to the package server
             #TODO
 
-    def mkspec(self, tarname, tarversion, destdir):
-        content = 'Name:       ' + tarname + '\r\n'
-        content += 'Version:    ' + tarversion
-        content += '''
-Release:    1
-Summary:    Just a demo test
-Group:      A group
-License:    A license
-Source0:    %{name}-%{version}.tar.gz
-Autoreq:    No
-%description
-description description description description description
-'''
-        content += '%define DESTDIR ' + destdir
-        content += '''
-%prep
-%setup -q
-%install
-rm -rf $RPM_BUILD_ROOT
-mkdir -p %{buildroot}/%{DESTDIR}/%{name}-%{version}
-cp -r * %{buildroot}/%{DESTDIR}/%{name}-%{version}
-%clean
-rm -rf $RPM_BUILD_DIR/*
-rm -rf $RPM_BUILD_ROOT
-%files
-%{DESTDIR}/*
-%dir %{DESTDIR}/
-'''
-        #print content
-        f = open(self.rpmbuildpath + 'SPECS/' + tarname + '-' + tarversion+ '.spec', 'w')
+    def mkspec(self, project_id, tarversion, destdir):
+        tmp = open('base.spec')
+        f = open(self.rpmbuildpath + 'SPECS/' + project_id + '-' + tarversion + '.spec', 'w')
+        f.write('%define DESTDIR ' + destdir + '\r\n')
+        f.write('Name:       ' + project_id + '\r\n');
+        f.write('Version:    ' + tarversion + '\r\n')
+        content = tmp.read()
         f.write(content)
-       
-
 
     def mktar(self, srcpath, tarname):
         cmd = 'cp -r ' + srcpath + ' ' + self.rpmbuildpath + 'SOURCES/' + tarname
@@ -204,7 +199,7 @@ if __name__ == "__main__":
     task_info['release_server']['ip'] = '10.237.93.43'
     task_info['release_server']['port'] = '22'
     task_info['release_server']['path'] = '/data/www/10.xiaomi.com'
-    #print task_info
+
     daemon.queue_id = sys.argv[1]
     daemon.rds.lpush('miup_task_' + daemon.queue_id, task_info)
     
