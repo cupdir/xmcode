@@ -30,7 +30,7 @@ class MiUp(Daemon):
             print '---up---'
             status, output = self.up_to_version(task_info, task_info['release_ver'])
             if status != 0:
-                print 'up to version failed-_-' #TODO write log
+                print 'up to version failed-_-', output #TODO write log
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
 
@@ -38,7 +38,7 @@ class MiUp(Daemon):
             print '---rsync---'
             status, output = self.rsync(task_info['release_exclude'])
             if status != 0:
-                print 'rsync folder failed-_-' #TODO write log
+                print 'rsync folder failed-_-', output #TODO write log
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
 
@@ -49,7 +49,7 @@ class MiUp(Daemon):
             print '---mktar---'
             status, output = self.mktar(srcpath, project_id + '-' + tarversion)
             if status != 0:
-                print 'make tar.gz failed-_-' #TODO write log
+                print 'make tar.gz failed-_-', output #TODO write log
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
 
@@ -58,14 +58,14 @@ class MiUp(Daemon):
             print '---mkspec---'
             status, output = self.mkspec(project_id, tarversion, task_info['release_server']['path'])
             if status != 0:
-                print 'make spec file failed-_-' #TODO write log
+                print 'make spec file failed-_-', output #TODO write log
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
             #Step4.2 make xxx.rpm
             print '---rpmbuild---'
             status, output = self.rpmbuild(project_id + '-' + tarversion)
             if status != 0:
-                print 'make rpm package failed-_-' #TODO write log
+                print 'make rpm package failed-_-', output #TODO write log
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
             print 'rpmbuild finished'
@@ -74,13 +74,13 @@ class MiUp(Daemon):
             #TODO
 
     def mkspec(self, project_id, tarversion, destdir):
-        tmp = open('base.spec')
-        f = open(self.rpmbuildpath + 'SPECS/' + project_id + '-' + tarversion + '.spec', 'w')
-        f.write('%define DESTDIR ' + destdir + '\r\n')
-        f.write('Name:       ' + project_id + '\r\n');
-        f.write('Version:    ' + tarversion + '\r\n')
-        content = tmp.read()
-        f.write(content)
+        try:
+            with open('base_spec_tpl', 'r') as tpl, open(self.rpmbuildpath + 'SPECS/' + project_id + '-' + tarversion + '.spec', 'w') as f:
+                content = tpl.read() % (project_id, tarversion, destdir)
+                f.write(content)
+                return 0, None
+        except IOError as ioerr:
+            return 1, str(ioerr)
 
     def mktar(self, srcpath, tarname):
         cmd = 'cp -r ' + srcpath + ' ' + self.rpmbuildpath + 'SOURCES/' + tarname
@@ -149,9 +149,9 @@ class MiUp(Daemon):
 
 
     def up_to_version(self, task_info, version):
-        if task_info['rep_type1'] == "git":
+        if task_info['rep_type'] == "git":
             return self.git_up_to_version(task_info, version)
-        elif task_info['rep_type1'] == 'svn':
+        elif task_info['rep_type'] == 'svn':
             return self.svn_up_to_version(task_info, version)
         else:
             return 'unknown type'
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     task_info['rep_path'] = '/repos/10.xiaomi.com/'
     task_info['rep_user'] = 'wanghaiquan'
     task_info['rep_pass'] = 'haiquan82@186'
-    task_info['rep_type1'] = 'svn'
+    task_info['rep_type'] = 'svn'
     task_info['rep_proto'] = 'https'
     task_info['project_id'] = '10001'
     task_info['project_name'] = '10.xiaomi.com'
