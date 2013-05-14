@@ -4,15 +4,17 @@ import commands
 import time
 import json
 import sys
+import pycurl
+import random
 from daemon import Daemon
 
 class MiUp(Daemon):
-    rootpath = '~/work/xmcode/sbin/' #FIXME
+    rootpath = '/home/xiaoqing/work/xmcode/sbin/' #FIXME
     rpmbuildpath = '/usr/src/rpmbuild/'
     redis_host = '10.237.93.17'
     redis_port = 6379
+    upload_srv = 'http://rpmapi.b2c.srv/upload'
 
-    #def __init__(self):
     rds = redis.Redis(host = redis_host, port = redis_port, db = 0)
 
     #TODO write logs and error handling
@@ -25,12 +27,12 @@ class MiUp(Daemon):
                 print 'No task'
                 time.sleep(1)
                 continue
-            print task
+            self.writelog('[INFO] Task #' + task_info['task_id'] + ' begin..')
             #Step1: floder 'rep/xxx' update to the release version
             print '---up---'
             status, output = self.up_to_version(task_info, task_info['release_ver'])
             if status != 0:
-                print 'up to version failed-_-', output #TODO write log
+                self.writelog('[FAILED] up to version failed: ' + output)
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
 
@@ -38,46 +40,49 @@ class MiUp(Daemon):
             print '---rsync---'
             status, output = self.rsync(task_info['release_exclude'])
             if status != 0:
-                print 'rsync folder failed-_-', output #TODO write log
+                self.writelog('[FAILED] rsync folder failed: ' + output)
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
 
             #Step3: make xxx.tar.gz
             srcpath = 'rpmsrc/' + task_info['project_id']
-            project_id = task_info['project_id']
+            project_name = task_info['project_name']
             tarversion = task_info['task_id']
             print '---mktar---'
-            status, output = self.mktar(srcpath, project_id + '-' + tarversion)
+            status, output = self.mktar(srcpath, project_name + '-' + tarversion)
             if status != 0:
-                print 'make tar.gz failed-_-', output #TODO write log
+                self.writelog('[FAILED] make tar.gz failed: ' + output)
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
 
-            #Step4: make xxx.rpm
-            #Step4.1 make spec file
+            #Step4 make spec file
             print '---mkspec---'
-            status, output = self.mkspec(project_id, tarversion, task_info['release_server']['path'])
+            status, output = self.mkspec(project_name, tarversion, task_info['release_server']['path'])
             if status != 0:
-                print 'make spec file failed-_-', output #TODO write log
+                self.writelog('[FAILED] make spec file failed: ' + output)
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
-            #Step4.2 make xxx.rpm
+            #Step5 make xxx.rpm
             print '---rpmbuild---'
-            status, output = self.rpmbuild(project_id + '-' + tarversion)
+            status, output = self.rpmbuild(project_name + '-' + tarversion)
             if status != 0:
-                print 'make rpm package failed-_-', output #TODO write log
+                self.writelog('[FAILED] make rpm package failed: ' + output)
                 self.rds.lpush('miup_task_' + self.queue_id) #FIXME error handling
                 continue
-            print 'rpmbuild finished'
 
-            #Step5: upload to the package server
-            #TODO
+            #Step6: upload to the package server
+            print '---upload---'
+            status, output = self.upload(self.rpmbuildpath + '/RPMS/' + project_name + '-' + tarversion + '.rpm')
+            if status != 0:
+                self.writelog('[FAILED] upload rpm package failed: ' + output)
+            self.writelog('[INFO] Task #' + task_info['task_id'] + ' finished.')
 
-    def mkspec(self, project_id, tarversion, destdir):
+    def mkspec(self, project_name, tarversion, destdir):
         try:
-            with open('base_spec_tpl', 'r') as tpl, open(self.rpmbuildpath + 'SPECS/' + project_id + '-' + tarversion + '.spec', 'w') as f:
-                content = tpl.read() % (project_id, tarversion, destdir)
+            with open('base_spec_tpl', 'r') as tpl, open(self.rpmbuildpath + 'SPECS/' + project_name + '-' + tarversion + '.spec', 'w') as f:
+                content = tpl.read() % (project_name, tarversion, destdir)
                 f.write(content)
+                self.writelog('[INFO] make ' + self.rpmbuildpath + 'SPECS/' + project_name + '-' + tarversion + '.spec')
                 return 0, None
         except IOError as ioerr:
             return 1, str(ioerr)
@@ -86,14 +91,14 @@ class MiUp(Daemon):
         cmd = 'cp -r ' + srcpath + ' ' + self.rpmbuildpath + 'SOURCES/' + tarname
         cmd += '; cd ' + self.rpmbuildpath + 'SOURCES; tar zcf ' + tarname + '.tar.gz ' + tarname
         cmd += '; rm -rf ' + tarname
-        #print cmd
+        self.writelog('[INFO] cmd: ' + cmd)
         status, output = commands.getstatusoutput(cmd)
         return status, output
 
     def rpmbuild(self, tarname):
         #TODO: VERIFY SPEC file and tgz file
         cmd = "rpmbuild -ba " + self.rpmbuildpath + 'SPECS/' + tarname + '.spec'
-        print cmd
+        self.writelog('[INFO] cmd: ' + cmd)
         status, output = commands.getstatusoutput(cmd)
         return status, output
 
@@ -106,7 +111,7 @@ class MiUp(Daemon):
                 " --username " + task_info['rep_user'] + " --password " + task_info['rep_pass'] +\
                 " --no-auth-cache --non-interactive rep/" + task_info['project_id'] +\
                 " > /dev/null 2>&1"
-        print cmd
+        self.writelog('[INFO] cmd: ' + cmd)
         status, output = commands.getstatusoutput(cmd)
         return status, output
 
@@ -115,28 +120,28 @@ class MiUp(Daemon):
         if version != 0:
             cmd_version = ' -r ' + version
         cmd = "svn up -q " + cmd_version + " --no-auth-cache --non-interactive rep/" + task_info['project_id'] + " > /dev/null 2>&1"
-        print cmd
+        self.writelog('[INFO] cmd: ' + cmd)
         status, output = commands.getstatusoutput(cmd)
         return status, output
 
     def svn_up_to_version(self, task_info, version):
         path = "rep/" + task_info['project_id']
         if os.path.exists(path):
-            print 'up'
+            self.writelog('[INFO] svn update')
             return self.update_svn(task_info, version)
         else:
-            print 'co'
+            self.writelog('[INFO] svn checkout')
             return self.checkout_svn(task_info, version)
 
-    def git_up_to_version(self, task_info, version):
+    def git_up_to_version(self, task_info, version): #######################FIXME
         path = "rep/" + task_info['project_id']
         if os.path.exists(path):
-            print 'pull'
+            self.writelog('[INFO] git pull')
             cmd = "git pull"
         else:
-            print 'clone'
+            self.writelog('[INFO] git clone')
             cmd = "git clone " + task_info['rep_proto'] + "://" + task_info['rep_user'] + "@" + task_info['rep_host'] + ":" + task_info['rep_port'] + "/" + task_info['rep_name'] + " rep/" + task_info['project_id']
-        print cmd
+        self.writelog('[INFO] cmd: ' + cmd)
         status, output = commands.getstatusoutput(cmd)
         #TODO ?? clone and checkout???
         if status:
@@ -144,31 +149,83 @@ class MiUp(Daemon):
         os.chdir(self.rootpath)
         os.chdir(path)
         cmd = "git checkout " + task_info['release_ver']
+        self.writelog('[INFO] cmd: ' + cmd)
         status, output = commands.getstatusoutput(cmd)
         return status, output
 
 
     def up_to_version(self, task_info, version):
         if task_info['rep_type'] == "git":
+            self.writelog('[INFO] git project')
             return self.git_up_to_version(task_info, version)
         elif task_info['rep_type'] == 'svn':
+            self.writelog('[INFO] svn project')
             return self.svn_up_to_version(task_info, version)
         else:
-            return 'unknown type'
+            self.writelog('[ERROR] unknown type project')
+            return 1, 'unknown type'
 
     def rsync(self, exclude_path):
-        #rsync -rlt --timeout=300 --exclude='.svn' --exclude='.git' --exclude='.gitignore' --exclude='t.html'  rep/10001/ rpmsrc/10001
         if not os.path.exists('rpmsrc'):
             os.mkdir('rpmsrc')
         exclude_cmd = " --exclude='.git' --exclude='.gitignore' --exclude='.svn'"
         for path in exclude_path:
             exclude_cmd += " --exclude='" + path + "'"
         cmd = "rsync -rlt --timeout=300 " + exclude_cmd + " rep/" + task_info['project_id'] + "/ rpmsrc/" + task_info['project_id']
-        #print cmd
+        self.writelog('[INFO] cmd: ' + cmd)
         status, output = commands.getstatusoutput(cmd)
         return status, output
 
+    def upload0(self, filepath):
+        if not os.path.exists(filepath):
+            return 1, 'file not exist'
+        cmd = 'md5sum ' + filepath
+        status, output = commands.getstatusoutput(cmd)
+        md5sum = output.split(' ')[0]
+        cmd = 'curl -v -i -XPOST ' + self.upload_srv + '?token=' + md5sum + ' -F "media=@' + filepath + ';type=application/octet-stream;filename=' + filepath.split('/')[-1] + '"'
+        status, output = commands.getstatusoutput(cmd)
+        return status, output
 
+    def upload(self, filepath):
+        if not os.path.exists(filepath):
+            self.writelog('[ERROR] rpm file not exist')
+            return 1, 'file not exist'
+        cmd = 'md5sum ' + filepath
+        c = pycurl.Curl()
+        status, output = commands.getstatusoutput(cmd)
+        md5sum = output.split(' ')[0]
+        xpid = md5sum + self.gen_random(6)
+        c.setopt(c.POST, 1)
+        c.setopt(c.URL, self.upload_srv)
+        self.writelog('[INFO] upload: token=' + md5sum)
+        self.writelog('[INFO] upload: X-Progress-ID=' + xpid)
+        post_filed = [(filepath.split('/')[-1], (c.FORM_FILE, filepath)),
+                      ('token', (c.FORM_CONTENTS, md5sum)),
+                      ('X-Progress-ID', (c.FORM_CONTENTS, xpid))]
+        c.setopt(c.HTTPPOST, post_filed)
+        try:
+            c.perform()
+            if c.getinfo(pycurl.HTTP_CODE) != 200: #FIXME
+                self.writelog('[FAILED] upload: pycurl.HTTP_CODE=' + str(pycurl.HTTP_CODE))
+                return 2, 'pycurl failed'
+            return 0, 'SUCCESS'
+        except pycurl.error, err:
+            self.writelog('[FAILED] upload: ' + err)
+            return 3, err
+        finally:
+            c.close()
+
+    def gen_random(self, length):
+        chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        return ''.join(random.sample(chars, length))
+
+    def writelog(self, msg):
+        print msg
+        date_tag = time.strftime('%Y%m%d', time.localtime(time.time()))
+        time_tag = time.strftime('[%Y-%m-%d %H:%M:%S]', time.localtime(time.time()))
+        f = open(self.rootpath + "logs/" + date_tag + '.log','a')
+        f.write(time_tag + " " + msg + "\n")
+        f.close()
 
 
 if __name__ == "__main__":
@@ -200,7 +257,10 @@ if __name__ == "__main__":
     task_info['release_server']['port'] = '22'
     task_info['release_server']['path'] = '/data/www/10.xiaomi.com'
 
-    daemon.queue_id = sys.argv[1]
+    if len(sys.argv) > 2:
+        daemon.queue_id = sys.argv[1]
+    else:
+        daemon.queue_id = 'comm'
     daemon.rds.lpush('miup_task_' + daemon.queue_id, task_info)
     
     daemon.run()
